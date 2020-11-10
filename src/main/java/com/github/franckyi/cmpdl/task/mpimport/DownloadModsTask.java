@@ -6,8 +6,10 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.Phaser;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -24,14 +26,16 @@ import javafx.concurrent.Task;
 
 public class DownloadModsTask extends TaskBase<Void> {
 
-	public final ExecutorService DOWNLOAD_EXECUTOR_SERVICE = Executors.newWorkStealingPool(8);
+	public final ExecutorService DOWNLOAD_EXECUTOR_SERVICE = Executors.newFixedThreadPool(16);
 
     private final File modsFolder, progressFile;
     private final List<ModpackManifest.ModpackManifestMod> mods;
 
     private final ObjectProperty<Task<?>> task = new SimpleObjectProperty<>();
 
-    public DownloadModsTask(File modsFolder, File progressFile, List<ModpackManifest.ModpackManifestMod> mods) {
+	private final Phaser downloadsPending = new Phaser(1);;
+
+	public DownloadModsTask(File modsFolder, File progressFile, List<ModpackManifest.ModpackManifestMod> mods) {
         this.modsFolder = modsFolder;
         this.progressFile = progressFile;
         this.mods = mods;
@@ -39,11 +43,13 @@ public class DownloadModsTask extends TaskBase<Void> {
 
 	@Override
 	public boolean cancel(boolean mayInterruptIfRunning) {
-		boolean ret = super.cancel(mayInterruptIfRunning);
-		if (ret) {
-			DOWNLOAD_EXECUTOR_SERVICE.shutdownNow();
+		List<Runnable> tasks = DOWNLOAD_EXECUTOR_SERVICE.shutdownNow();
+		for (Runnable run : tasks) {
+			if (run instanceof FutureTask) {
+				((FutureTask<?>) run).cancel(true);
+			}
 		}
-		return ret;
+		return super.cancel(mayInterruptIfRunning);
 	}
 
     @Override
@@ -66,15 +72,28 @@ public class DownloadModsTask extends TaskBase<Void> {
 		long startTime = System.currentTimeMillis();
 		System.out.println(startTime);
 		try (FileWriter writer = new FileWriter(progressFile, true)) {
-			Phaser downloadsPending = new Phaser(1);
+
 			AtomicInteger downloadsDone = new AtomicInteger(start);
             for (int i = start; i < max; i++) {
                 if (isCancelled()) {
-					// returning -> leaving try with resource block -> closing writer
-                    return null;
+					throw new Exception();
                 }
                 ModpackManifest.ModpackManifestMod mod = mods.get(i - start);
 				TaskBase<Void> resolveTask = new TaskBase<Void>() {
+
+					@Override
+					protected Optional<Void> call() throws Exception {
+						try {
+							return Optional.ofNullable(call0());
+						} catch (Throwable t) {
+							CMPDL.progressPane.getController().log("!!! Failed to resolve download file !!! %d:%d", mod.getProjectId(), mod.getFileId());
+							if (t instanceof Exception) {
+								throw (Exception) t;
+							} else {
+								throw new Exception(t);
+							}
+						}
+					}
 
 					@Override
 					protected Void call0() throws Throwable {
@@ -94,24 +113,20 @@ public class DownloadModsTask extends TaskBase<Void> {
 									} finally {
 										downloadsPending.arriveAndDeregister();
 										int done = downloadsDone.incrementAndGet();
-										Platform.runLater(new Runnable() {
-											public void run() {
-												DownloadModsTask.this.updateTitle(String.format("Downloading mods (%d/%d)", done, max));
-												DownloadModsTask.this.updateProgress(done, max);
-											}
-										});
+										DownloadModsTask.this.updateTitle(String.format("Downloading mods (%d/%d)", done, max));
+										DownloadModsTask.this.updateProgress(done, max);
 									}
 								});
 								downloadTask.setOnFailed(e -> {
 									downloadsPending.arriveAndDeregister();
-									int done = downloadsDone.incrementAndGet();
-									Platform.runLater(new Runnable() {
-										public void run() {
-											DownloadModsTask.this.updateTitle(String.format("Downloading mods (%d/%d)", done, max));
-											DownloadModsTask.this.updateProgress(done, max);
-										}
-									});
+									DownloadModsTask.this.cancel();
 								});
+								downloadTask.setOnCancelled(e -> {
+									downloadsPending.arriveAndDeregister();
+								});
+								if (isCancelled()) {
+									throw new Exception();
+								}
 								downloadsPending.register();
 								DOWNLOAD_EXECUTOR_SERVICE.execute(downloadTask);
 							} else {
@@ -123,22 +138,29 @@ public class DownloadModsTask extends TaskBase<Void> {
 						}
 					}
 				};
+				resolveTask.setOnFailed(e -> {
+					DownloadModsTask.this.cancel();
+				});
+				resolveTask.setOnCancelled(e -> {
+					downloadsPending.arriveAndDeregister();
+				});
 				downloadsPending.register();
 				DOWNLOAD_EXECUTOR_SERVICE.execute(resolveTask);
             }
 			// wait for all files to be downloaded before closing the writer
-			try {
-				downloadsPending.awaitAdvance(downloadsPending.arrive());
-				DOWNLOAD_EXECUTOR_SERVICE.shutdown();
-			} catch (Exception e) {
-				e.printStackTrace();
-				if (isCancelled()) {
-					CMPDL.progressPane.getController().log("!!! Did NOT finish downloading. got cancelled !!!");
-				}
+			downloadsPending.awaitAdvance(downloadsPending.arrive());
+			DOWNLOAD_EXECUTOR_SERVICE.shutdown();
+			if (isCancelled()) {
+				throw new Exception();
 			}
-		} catch (Exception e) {
+		} catch (Throwable e) {
 			throw new RuntimeException("Exception occured during mods download", e);
+		} finally {
+			if (isCancelled()) {
+				CMPDL.progressPane.getController().log("!!! Did NOT finish downloading. Got cancelled !!!");
+			}
 		}
+
 		long endTime = System.currentTimeMillis();
 		CMPDL.progressPane.getController().log("Mods download took: " + (endTime - startTime) + " ms");
         return null;

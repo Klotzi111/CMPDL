@@ -2,7 +2,7 @@ package com.github.franckyi.cmpdl.task.mpimport;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.URISyntaxException;
+import java.util.Optional;
 
 import org.jetbrains.annotations.NotNull;
 
@@ -34,10 +34,28 @@ public class DownloadFileTask extends TaskBase<Void> {
 		return dst.getName();
 	}
 
+	@Override
+	protected Optional<Void> call() throws Exception {
+		try {
+			return Optional.ofNullable(call0());
+		} catch (Throwable t) {
+			CMPDL.progressPane.getController().log("!!! Failed to download file !!! src=" + src + ", dst=" + dst);
+			if (t instanceof Exception) {
+				throw (Exception) t;
+			} else {
+				throw new Exception(t);
+			}
+		}
+	}
+
+
 	// shows way to many warnings. But all should be fine
 	@SuppressWarnings("resource")
 	private void download(@NotNull String url, @NotNull File destFile) throws IOException {
 		Request request = new Request.Builder().url(url).build();
+		if (isCancelled()) {
+			throw new IOException();
+		}
 		try (Response response = CMPDL.okHttpClient.newCall(request).execute()) {
 			ResponseBody body = response.body();
 			long contentLength = body.contentLength();
@@ -53,7 +71,7 @@ public class DownloadFileTask extends TaskBase<Void> {
 					totalBytesRead += bytesRead;
 					this.updateProgress(totalBytesRead, contentLength);
 					if (isCancelled()) {
-						return;
+						throw new IOException();
 					}
 				}
 			}
@@ -61,9 +79,16 @@ public class DownloadFileTask extends TaskBase<Void> {
 	}
 
     @Override
-    protected Void call0() throws IOException, URISyntaxException {
-        updateTitle(String.format("Downloading %s", dst.getName()));
-		download(src, dst);
+	protected Void call0() throws Throwable {
+		try {
+			// boolean throwE = false;
+			// if (throwE) {
+			// throw new IOException();
+			// }
+			download(src, dst);
+		} catch (Throwable e) {
+			throw new Exception("Downloading file failed! src=" + src + ", dst=" + dst, e);
+		}
         return null;
     }
 }

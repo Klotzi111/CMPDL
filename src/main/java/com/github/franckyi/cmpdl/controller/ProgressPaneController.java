@@ -27,6 +27,7 @@ import javafx.scene.control.ListView;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.TextArea;
+import javafx.stage.Modality;
 
 public class ProgressPaneController implements Initializable, IContentController {
 
@@ -204,6 +205,14 @@ public class ProgressPaneController implements Initializable, IContentController
             log("Downloaded mods successfully");
             copyOverrides();
         });
+		task.setOnFailed(e -> {
+			log("Failed to download mods!");
+			failed();
+		});
+		task.setOnCancelled(e -> {
+			log("Failed to download mods!");
+			failed();
+		});
         setTask1(task);
         showDownloadTaskList(true);
         task.taskProperty().addListener((observable, oldValue, newValue) -> {
@@ -233,6 +242,19 @@ public class ProgressPaneController implements Initializable, IContentController
         setTask1(task);
         CMPDL.EXECUTOR_SERVICE.execute(task);
     }
+
+	private void failed() {
+		showDownloadTaskList(false);
+		done = true;
+		setTask1(null);
+
+		Alert alert = new Alert(Alert.AlertType.ERROR, null, ButtonType.OK);
+		alert.setHeaderText("!!! Failed to import Modpack !!!");
+		alert.setContentText("Look for other error messages to find out what appended!");
+		alert.initOwner(CMPDL.stage);
+		alert.initModality(Modality.NONE);
+		alert.show();
+	}
 
     private void finish() {
         done = true;

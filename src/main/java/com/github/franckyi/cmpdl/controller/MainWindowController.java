@@ -1,16 +1,17 @@
 package com.github.franckyi.cmpdl.controller;
 
+import java.net.URL;
+import java.util.ResourceBundle;
+
 import com.github.franckyi.cmpdl.CMPDL;
 import com.github.franckyi.cmpdl.core.ContentControllerView;
+
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
 import javafx.scene.control.Button;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.AnchorPane;
-
-import java.net.URL;
-import java.util.ResourceBundle;
 
 public class MainWindowController implements Initializable {
 
@@ -55,7 +56,7 @@ public class MainWindowController implements Initializable {
     public void initialize(URL location, ResourceBundle resources) {
         setContent(CMPDL.modpackPane);
         startButton.disableProperty().bind(CMPDL.modpackPane.getController().getZipButton().selectedProperty().not());
-        nextButton.disableProperty().bind(CMPDL.modpackPane.getController().getZipButton().selectedProperty());
+		nextButton.setDisable(true);
     }
 
     public void setContent(ContentControllerView<?> cv) {
