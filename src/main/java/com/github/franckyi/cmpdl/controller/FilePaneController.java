@@ -1,25 +1,36 @@
 package com.github.franckyi.cmpdl.controller;
 
+import java.net.URL;
+import java.util.Comparator;
+import java.util.List;
+import java.util.ResourceBundle;
+
 import com.github.franckyi.cmpdl.CMPDL;
 import com.github.franckyi.cmpdl.api.response.Addon;
 import com.github.franckyi.cmpdl.api.response.AddonFile;
 import com.github.franckyi.cmpdl.api.response.Attachment;
 import com.github.franckyi.cmpdl.task.api.CallTask;
 import com.github.franckyi.cmpdl.view.AddonFileMinimalView;
+
 import javafx.application.Platform;
 import javafx.collections.ListChangeListener;
 import javafx.event.ActionEvent;
+import javafx.event.EventHandler;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
-import javafx.scene.control.*;
+import javafx.scene.control.Alert;
+import javafx.scene.control.Button;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.Label;
+import javafx.scene.control.ListView;
+import javafx.scene.control.RadioButton;
+import javafx.scene.control.TextField;
+import javafx.scene.control.ToggleGroup;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.VBox;
-
-import java.net.URL;
-import java.util.Comparator;
-import java.util.List;
-import java.util.ResourceBundle;
 
 public class FilePaneController implements Initializable, IContentController {
 
@@ -70,6 +81,21 @@ public class FilePaneController implements Initializable, IContentController {
         directPane.disableProperty().bind(directButton.selectedProperty().not());
         idField.disableProperty().bind(idButton.selectedProperty().not());
         filesListView.setCellFactory(param -> new AddonFileMinimalView());
+		filesListView.setOnMouseClicked(new EventHandler<MouseEvent>() {
+
+			@Override
+			public void handle(MouseEvent click) {
+				if (CMPDL.currentContent != CMPDL.filePane) {
+					return;
+				}
+				if (click.getButton() == MouseButton.PRIMARY && click.getClickCount() == 2) {
+					AddonFile currentItemSelected = filesListView.getSelectionModel().getSelectedItem();
+					if (currentItemSelected != null) {
+						handleNext();
+					}
+				}
+			}
+		});
         filesListView.getSelectionModel().getSelectedItems().addListener((ListChangeListener<? super AddonFile>) c -> {
             if (CMPDL.currentContent == CMPDL.filePane && directButton.isSelected()) {
                 CMPDL.mainWindow.getController().getNextButton().setDisable(c.getList().size() != 1);
@@ -118,10 +144,13 @@ public class FilePaneController implements Initializable, IContentController {
         CMPDL.mainWindow.getController().getNextButton().setDisable(true);
         CMPDL.mainWindow.getController().getPreviousButton().setDisable(false);
         CallTask<List<AddonFile>> task = new CallTask<>(String.format("Getting addon files for addon %d", addon.getId()), CMPDL.getAPI().getAddonFiles(addon.getId()));
-        task.setOnSucceeded(e -> files = task.getValue().orElse(null));
-        if (files != null) {
-            files.sort(Comparator.comparing(AddonFile::getFileDate).reversed());
-        }
+		task.setOnSucceeded(e -> {
+			files = task.getValue().orElse(null);
+			if (files != null) {
+				files.sort(Comparator.comparing(AddonFile::getFileDate).reversed());
+			}
+		});
+
         CMPDL.EXECUTOR_SERVICE.execute(task);
     }
 

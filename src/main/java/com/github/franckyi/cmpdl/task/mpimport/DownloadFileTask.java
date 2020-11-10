@@ -1,17 +1,26 @@
 package com.github.franckyi.cmpdl.task.mpimport;
 
+import java.io.File;
+import java.io.IOException;
+import java.net.URISyntaxException;
+
+import org.jetbrains.annotations.NotNull;
+
+import com.github.franckyi.cmpdl.CMPDL;
 import com.github.franckyi.cmpdl.task.TaskBase;
 
-import java.io.BufferedInputStream;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.net.HttpURLConnection;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.URL;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
+import okio.Buffer;
+import okio.BufferedSink;
+import okio.BufferedSource;
+import okio.Okio;
+import okio.Segment;
 
 public class DownloadFileTask extends TaskBase<Void> {
+
+	private static final int DOWNLOAD_CHUNK_SIZE = Segment.SIZE;
 
     private final String src;
     private final File dst;
@@ -21,26 +30,40 @@ public class DownloadFileTask extends TaskBase<Void> {
         this.dst = dst;
     }
 
+	public String getFileName() {
+		return dst.getName();
+	}
+
+	// shows way to many warnings. But all should be fine
+	@SuppressWarnings("resource")
+	private void download(@NotNull String url, @NotNull File destFile) throws IOException {
+		Request request = new Request.Builder().url(url).build();
+		try (Response response = CMPDL.okHttpClient.newCall(request).execute()) {
+			ResponseBody body = response.body();
+			long contentLength = body.contentLength();
+			BufferedSource source = body.source();
+
+			try (BufferedSink sink = Okio.buffer(Okio.sink(destFile))) {
+				Buffer sinkBuffer = sink.getBuffer();
+
+				long totalBytesRead = 0;
+				long bytesRead;
+				while ((bytesRead = source.read(sinkBuffer, DOWNLOAD_CHUNK_SIZE)) != -1) {
+					sink.emit();
+					totalBytesRead += bytesRead;
+					this.updateProgress(totalBytesRead, contentLength);
+					if (isCancelled()) {
+						return;
+					}
+				}
+			}
+		}
+	}
+
     @Override
     protected Void call0() throws IOException, URISyntaxException {
         updateTitle(String.format("Downloading %s", dst.getName()));
-        URL url = new URL(src);
-        URI uri = new URI(url.getProtocol(), url.getHost(), url.getFile(), null);
-        if (!dst.exists()) dst.createNewFile();
-        HttpURLConnection connection = (HttpURLConnection) new URL(uri.toASCIIString()).openConnection();
-        int size = connection.getContentLength();
-        BufferedInputStream bis = new BufferedInputStream(connection.getInputStream());
-        FileOutputStream fis = new FileOutputStream(dst);
-        byte[] buffer = new byte[1024];
-        long dl = 0;
-        int count;
-        while ((count = bis.read(buffer, 0, 1024)) != -1 && !isCancelled()) {
-            fis.write(buffer, 0, count);
-            dl += count;
-            this.updateProgress(dl, size);
-        }
-        fis.close();
-        bis.close();
+		download(src, dst);
         return null;
     }
 }

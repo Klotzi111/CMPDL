@@ -1,8 +1,8 @@
 package com.github.franckyi.cmpdl.api.response;
 
-import com.github.franckyi.cmpdl.api.IBean;
-
 import java.util.List;
+
+import com.github.franckyi.cmpdl.api.IBean;
 
 public class Addon implements IBean {
 
@@ -16,6 +16,7 @@ public class Addon implements IBean {
     private List<Category> categories;
     private int primaryCategoryId;
     private CategorySection categorySection;
+	private String slug;
 
     public int getId() {
         return id;
@@ -56,5 +57,9 @@ public class Addon implements IBean {
     public CategorySection getCategorySection() {
         return categorySection;
     }
+
+	public String getSlug() {
+		return slug;
+	}
 
 }

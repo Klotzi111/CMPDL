@@ -1,19 +1,32 @@
 package com.github.franckyi.cmpdl.controller;
 
-import com.github.franckyi.cmpdl.CMPDL;
-import com.github.franckyi.cmpdl.api.response.AddonFile;
-import com.github.franckyi.cmpdl.model.ModpackManifest;
-import com.github.franckyi.cmpdl.task.mpimport.*;
-import javafx.application.Platform;
-import javafx.concurrent.Task;
-import javafx.fxml.FXML;
-import javafx.fxml.Initializable;
-import javafx.scene.control.*;
-
 import java.io.File;
 import java.net.URL;
 import java.util.Optional;
 import java.util.ResourceBundle;
+
+import com.github.franckyi.cmpdl.CMPDL;
+import com.github.franckyi.cmpdl.api.response.AddonFile;
+import com.github.franckyi.cmpdl.model.ModpackManifest;
+import com.github.franckyi.cmpdl.task.mpimport.CopyOverridesTask;
+import com.github.franckyi.cmpdl.task.mpimport.DownloadFileTask;
+import com.github.franckyi.cmpdl.task.mpimport.DownloadModsTask;
+import com.github.franckyi.cmpdl.task.mpimport.ReadManifestTask;
+import com.github.franckyi.cmpdl.task.mpimport.UnzipFileTask;
+import com.github.franckyi.cmpdl.view.DownloadTaskView;
+
+import javafx.application.Platform;
+import javafx.concurrent.Task;
+import javafx.fxml.FXML;
+import javafx.fxml.Initializable;
+import javafx.scene.control.Alert;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.DialogPane;
+import javafx.scene.control.Label;
+import javafx.scene.control.ListView;
+import javafx.scene.control.ProgressBar;
+import javafx.scene.control.ProgressIndicator;
+import javafx.scene.control.TextArea;
 
 public class ProgressPaneController implements Initializable, IContentController {
 
@@ -40,13 +53,7 @@ public class ProgressPaneController implements Initializable, IContentController
     private ProgressIndicator progressIndicator1;
 
     @FXML
-    private Label subLabel2;
-
-    @FXML
-    private ProgressBar progressBar2;
-
-    @FXML
-    private ProgressIndicator progressIndicator2;
+	private ListView<DownloadFileTask> downloadTaskListView;
 
     @FXML
     private TextArea console;
@@ -54,6 +61,9 @@ public class ProgressPaneController implements Initializable, IContentController
     @Override
     public void initialize(URL location, ResourceBundle resources) {
         root.expandedProperty().addListener((observable, oldValue, newValue) -> CMPDL.stage.sizeToScene());
+		downloadTaskListView.setCellFactory(param -> new DownloadTaskView());
+		downloadTaskListView.setSelectionModel(new NoSelectionModel<>());
+		showDownloadTaskList(false);
     }
 
     @Override
@@ -85,8 +95,7 @@ public class ProgressPaneController implements Initializable, IContentController
         }
     }
 
-    public void setData(AddonFile addonFile, File destination) {
-        this.addonFile = addonFile;
+	private void setData(File destination) {
         this.destination = destination;
         minecraft = new File(destination, "minecraft");
         minecraft.mkdirs();
@@ -95,23 +104,23 @@ public class ProgressPaneController implements Initializable, IContentController
         temp = new File(destination, ".cmpdl_temp");
         temp.mkdirs();
         progressFile = new File(temp, ".progress");
-        zipFile = new File(temp, addonFile.getFileName());
-        unzipFolder = new File(temp, addonFile.getFileName().replace(".zip", ""));
+	}
+
+	private void setZipFile(File zipFile) {
+		this.zipFile = zipFile;
+		unzipFolder = new File(temp, zipFile.getName().replaceFirst("\\.zip$", ""));
         unzipFolder.mkdirs();
     }
 
-    public void setData(File zipFile, File dstFolder) {
-        this.zipFile = zipFile;
-        this.destination = dstFolder;
-        minecraft = new File(destination, "minecraft");
-        minecraft.mkdirs();
-        modsFolder = new File(minecraft, "mods");
-        modsFolder.mkdirs();
-        temp = new File(destination, ".cmpdl_temp");
-        temp.mkdirs();
-        progressFile = new File(temp, ".progress");
-        unzipFolder = new File(temp, zipFile.getName().replace(".zip", ""));
-        unzipFolder.mkdirs();
+	public void setData(AddonFile addonFile, File destination) {
+		this.addonFile = addonFile;
+		setData(destination);
+		setZipFile(new File(temp, addonFile.getFileName()));
+	}
+
+	public void setData(File zipFile, File destination) {
+		setData(destination);
+		setZipFile(zipFile);
     }
 
     private void setTask1(Task<?> task) {
@@ -119,9 +128,8 @@ public class ProgressPaneController implements Initializable, IContentController
         bind(task, subLabel1, progressBar1, progressIndicator1);
     }
 
-    private void setTask2(Task<?> task) {
-        task2 = task;
-        bind(task, subLabel2, progressBar2, progressIndicator2);
+	private void showDownloadTaskList(boolean visible) {
+		downloadTaskListView.setVisible(visible);
     }
 
     private void bind(Task<?> task, Label subLabel, ProgressBar progressBar, ProgressIndicator progressIndicator) {
@@ -197,14 +205,17 @@ public class ProgressPaneController implements Initializable, IContentController
             copyOverrides();
         });
         setTask1(task);
+        showDownloadTaskList(true);
         task.taskProperty().addListener((observable, oldValue, newValue) -> {
-            if (newValue != null) setTask2(newValue);
+			if (newValue != null) {
+				downloadTaskListView.getItems().add((DownloadFileTask) newValue);
+			}
         });
         CMPDL.EXECUTOR_SERVICE.execute(task);
     }
 
     private void copyOverrides() {
-        setTask2(null);
+		showDownloadTaskList(false);
         log("Copying overrides");
         CopyOverridesTask task = new CopyOverridesTask(new File(unzipFolder, manifest.getOverrides()), minecraft);
         task.setOnSucceeded(e -> {
@@ -227,10 +238,18 @@ public class ProgressPaneController implements Initializable, IContentController
         done = true;
         setTask1(null);
         subLabel1.setText("!!! Modpack imported successfully !!!");
-        subLabel2.setText(String.format("Make sure to install %s before playing.", manifest.getForge()));
-        log("Cleaned successfully");
-        log("!!! Modpack imported successfully !!!");
-        log("Make sure to install %s before playing.", manifest.getForge());
+		// subLabel2.setText(String.format("Make sure to install %s before playing.", manifest.getForge()));
+		log("Cleaned successfully");
+		log("!!! Modpack imported successfully !!!");
+		log("Make sure to install %s before playing.", manifest.getForge());
+
+		Alert alert = new Alert(Alert.AlertType.INFORMATION, null, ButtonType.OK);
+		alert.setHeaderText("!!! Modpack imported successfully !!!");
+		alert.setContentText(String.format("Make sure to install %s before playing.", manifest.getForge()));
+		alert.initOwner(CMPDL.stage);
+		alert.showAndWait();
+
+		handleClose();
     }
 
 }
